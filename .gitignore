@@ -1,0 +1,42 @@
+# Python cache/build
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local secrets/config
+.env
+.env.*
+!.env.example
+
+# Models and large local assets
+vosk-model-*/
+models/
+*.bin
+*.ckpt
+*.safetensors
+
+# Logs/runtime
+*.log
+logs/
+*.pid
+
+# Test/tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE/OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

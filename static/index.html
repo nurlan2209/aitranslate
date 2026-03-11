@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Субтитры Overlay</title>
+  <style>
+    :root {
+      --font-size: 52px;
+      --panel-bg: rgba(8, 14, 24, 0.72);
+      --panel-stroke: rgba(226, 232, 240, 0.16);
+      --line-1: #f8fafc;
+      --line-2: #bfdbfe;
+      --orig: #cbd5e1;
+      --bottom-offset: 14px;
+      --side-margin: 18px;
+      --line-height: 1.14;
+      --overlay-bg: #0b1220;
+      --panel-blur: 9px;
+      --text-align: center;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--overlay-bg);
+      color: #fff;
+      font-family: "Manrope", "Segoe UI", system-ui, sans-serif;
+      transition: background 160ms ease;
+    }
+
+    #controls {
+      position: fixed;
+      top: 14px;
+      right: 16px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #status {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid rgba(226, 232, 240, 0.32);
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(6px);
+      color: #e2e8f0;
+    }
+
+    .btn {
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(15, 23, 42, 0.6);
+      color: #e2e8f0;
+      border-radius: 999px;
+      padding: 8px 14px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .subtitle-box {
+      position: fixed;
+      left: var(--side-margin);
+      right: var(--side-margin);
+      padding: 16px 18px 14px;
+      border-radius: 16px;
+      border: 1px solid var(--panel-stroke);
+      background: linear-gradient(180deg, rgba(22, 31, 48, 0.58), var(--panel-bg));
+      backdrop-filter: blur(var(--panel-blur)) saturate(110%);
+      box-shadow: 0 14px 36px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    #bar-bottom { bottom: var(--bottom-offset); }
+    #bar-top { bottom: calc(var(--bottom-offset) + (var(--font-size) * var(--line-height) * 2) + 90px); }
+
+    #original {
+      position: fixed;
+      left: max(8px, var(--side-margin));
+      right: max(8px, var(--side-margin));
+      bottom: calc((var(--font-size) * var(--line-height) * 4) + 208px);
+      min-height: 1.2em;
+      font-size: calc(var(--font-size) * 0.36);
+      line-height: 1.24;
+      text-align: var(--text-align);
+      color: var(--orig);
+      opacity: 0.95;
+      text-wrap: balance;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+      pointer-events: none;
+    }
+
+    .meta {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+      min-height: 20px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 42px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      border: 1px solid rgba(148, 163, 184, 0.45);
+      background: rgba(15, 23, 42, 0.5);
+      color: #e2e8f0;
+    }
+
+    .line {
+      font-size: var(--font-size);
+      line-height: var(--line-height);
+      min-height: calc(2em * var(--line-height));
+      font-weight: 750;
+      white-space: normal;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      text-align: var(--text-align);
+      word-break: normal;
+      text-shadow: 0 3px 12px rgba(0, 0, 0, 0.84);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }
+
+    #lineTop { color: var(--line-1); }
+    #lineBottom { color: var(--line-2); }
+
+    .flash {
+      opacity: 0.72;
+      transform: translateY(1px);
+    }
+
+    #settings-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease;
+      z-index: 45;
+    }
+
+    #settings-backdrop.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    #settings-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(420px, 94vw);
+      height: 100%;
+      background: rgba(10, 18, 32, 0.95);
+      border-left: 1px solid rgba(148, 163, 184, 0.22);
+      transform: translateX(100%);
+      transition: transform 180ms ease;
+      z-index: 50;
+      overflow: auto;
+      padding: 16px 16px 24px;
+    }
+
+    #settings-panel.open {
+      transform: translateX(0);
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0.02em;
+    }
+
+    .close-btn {
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(15, 23, 42, 0.6);
+      color: #e2e8f0;
+      border-radius: 10px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    .section {
+      margin-top: 14px;
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(15, 23, 42, 0.38);
+    }
+
+    .section h3 {
+      margin: 0 0 10px;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #93c5fd;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .lbl {
+      color: #cbd5e1;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .ctrl {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    select, input[type="range"] {
+      width: 100%;
+      accent-color: #22d3ee;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 96px;
+      resize: vertical;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.36);
+      background: rgba(15, 23, 42, 0.62);
+      color: #e2e8f0;
+      padding: 9px 10px;
+      font: inherit;
+      line-height: 1.35;
+    }
+
+    select {
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.36);
+      background: rgba(15, 23, 42, 0.62);
+      color: #e2e8f0;
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    .value {
+      min-width: 56px;
+      font-size: 12px;
+      color: #bfdbfe;
+      font-weight: 700;
+      text-align: right;
+    }
+
+    .checks {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 13px;
+      color: #dbeafe;
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <div id="status">отключено</div>
+    <button id="clear-btn" class="btn">Очистить</button>
+    <button id="settings-btn" class="btn">⚙️</button>
+    <button id="start-btn" class="btn">🎙 Start</button>
+  </div>
+
+  <section id="bar-top" class="subtitle-box">
+    <div class="meta">
+      <span id="tagTop" class="pill">RU</span>
+    </div>
+    <div id="lineTop" class="line"></div>
+  </section>
+  <section id="bar-bottom" class="subtitle-box">
+    <div class="meta">
+      <span id="tagBottom" class="pill">EN</span>
+    </div>
+    <div id="lineBottom" class="line"></div>
+  </section>
+  <div id="original"></div>
+
+  <div id="settings-backdrop"></div>
+  <aside id="settings-panel">
+    <div class="panel-head">
+      <h2 class="panel-title">Настройки Overlay</h2>
+      <button id="close-settings" class="close-btn">Закрыть</button>
+    </div>
+
+    <section class="section">
+      <h3>Текст</h3>
+      <div class="row">
+        <div class="lbl">Микрофон</div>
+        <div class="ctrl">
+          <select id="micInput"></select>
+          <button id="refreshMics" class="close-btn" type="button">Обновить</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="lbl">Определение языка</div>
+        <div class="ctrl"><select id="langMode">
+          <option value="auto">Авто</option>
+          <option value="manual">Вручную</option>
+        </select></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Язык вручную</div>
+        <div class="ctrl"><select id="manualLang">
+          <option value="kazakh">Казахский</option>
+          <option value="russian">Русский</option>
+          <option value="english">Английский</option>
+        </select></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Размер шрифта</div>
+        <div class="ctrl"><input id="fontSize" type="range" min="24" max="120" value="52"><span id="fontSizeVal" class="value">52px</span></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Высота строки</div>
+        <div class="ctrl"><input id="lineHeight" type="range" min="100" max="145" value="114"><span id="lineHeightVal" class="value">1.14</span></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Выравнивание</div>
+        <div class="ctrl"><select id="textAlign">
+          <option value="center">По центру</option>
+          <option value="left">Слева</option>
+        </select></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Плотность текста</div>
+        <div class="ctrl"><input id="charScale" type="range" min="70" max="150" value="100"><span id="charScaleVal" class="value">100%</span></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Ключевые слова (РК, имена, аббревиатуры)</div>
+        <textarea id="glossaryTerms" placeholder="Каждый термин с новой строки, например:
+Maqsut Narikbayev University
+MNU
+РК
+ҚР"></textarea>
+        <div class="ctrl">
+          <button id="saveGlossary" class="close-btn" type="button">Сохранить слова</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h3>Плашка</h3>
+      <div class="row">
+        <div class="lbl">Нижний отступ</div>
+        <div class="ctrl"><input id="bottomOffset" type="range" min="0" max="48" value="14"><span id="bottomOffsetVal" class="value">14px</span></div>
+      </div>
+      <div class="row">
+        <div class="lbl">Боковые поля</div>
+        <div class="ctrl"><input id="sideMargin" type="range" min="0" max="64" value="18"><span id="sideMarginVal" class="value">18px</span></div>
+      </div>
+    </section>
+  </aside>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

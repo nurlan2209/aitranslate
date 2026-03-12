@@ -1,64 +1,60 @@
-# Система реального времени: Транскрибация и Перевод для Конференций
+# Realtime Subtitles: Rust + gRPC
 
-Это система для захвата голоса спикера с микрофона (в браузере), распознавания речи (Speech-to-Text) и моментального перевода на 3 языка: **Русский, Английский и Казахский**. Результат выводится на экран в виде субтитров, оптимизированных для проектора.
+Realtime STT/translation service for conference subtitles.
 
-1. **Распознавание речи:** Аудио распознается через быструю локальную модель `Vosk` (казахская модель).
-2. **Умный перевод:** Перевод текста на RU/EN/KK выполняется через `OpenRouter` (модель `gpt-5-nano`).
-3. **Фильтр шума/галлюцинаций:** Встроенные механизмы удаления "фантомных" фраз на фоне тишины (список стоп-фраз + фильтрация по уровню шума микрофона).
-4. **Проекторный UI:** Красивый интерфейс с анимациями, выбором размера шрифта, темным "Overlay Mode" для вывода поверх презентаций.
+Current backend stack:
+- Rust (`tokio`, `tonic`, `axum`)
+- gRPC bidirectional stream (`RealtimePipeline.Stream`)
+- WebSocket gateway `/ws/audio` for existing browser client
+- OpenAI API:
+  - STT: `/v1/audio/transcriptions` (`REMOTE_STT_MODEL`)
+  - Translation: `/v1/chat/completions` (`TRANSLATION_MODEL`)
 
----
+## Run
 
-## 🛠 Установка и Запуск
-
-### Шаг 1: Установка Python-зависимостей
-Откройте терминал (командную строку) в папке с проектом и выполните команду:
+1. Install Rust toolchain and protobuf compiler (`protoc`):
 ```bash
-pip install -r requirements.txt
+brew install rust protobuf
 ```
 
-### Шаг 2: Установка API-ключа OpenRouter
-Откройте файл `.env` в корне проекта (если его нет - создайте) и вставьте ваш ключ от OpenRouter:
-```
-OPENROUTER_API_KEY=sk-or-v1-...ваш_ключ...
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-TRANSLATION_MODEL=gpt-5-nano
-```
-*(Для работы системы необходим положительный баланс/кредиты на аккаунте OpenRouter).*
+2. Create `.env` in project root:
+```dotenv
+OPENAI_API_KEY=sk-...
+TRANSLATION_MODEL=gpt-4o-mini
+REMOTE_STT_MODEL=gpt-4o-transcribe
+KAZAKH_STT_ENGINE=remote
 
-### Шаг 3: Скачивание казахской модели Vosk (Только один раз)
-Чтобы казахский язык работал локально и точно, нужно скачать модель. Выполните скрипт:
+SILENCE_RMS_THRESHOLD=800
+MIN_WORDS_TO_EMIT=1
+REPEAT_EMIT_SECONDS=4
+MIN_TEXT_LENGTH_TO_EMIT=6
+MIN_ALPHA_CHARS_TO_EMIT=4
+MIN_ALPHA_RATIO_TO_EMIT=0.55
+
+GRPC_ADDR=127.0.0.1:50051
+HTTP_ADDR=127.0.0.1:8000
+```
+
+3. Build and run:
 ```bash
-python download_model.py
+cargo run
 ```
-*Скрипт автоматически скачает ~50МБ модель и распакует ее в папку `vosk-model-small-kz-0.15`.*
 
-### Шаг 4: Запуск сервера
-Запустите основной сервер с помощью Uvicorn:
-```bash
-uvicorn main:app
+4. Open:
+```text
+http://127.0.0.1:8000
 ```
-*(Или `uvicorn main:app --reload` если вы планируете вносить изменения в код).*
 
-### Шаг 5: Использование
-1. Откройте в браузере (рекомендуется Google Chrome) адрес: **http://127.0.0.1:8000**
-2. При первом запуске браузер запросит доступ к микрофону — разрешите.
-3. Нажмите кнопку **"Start"** в правом верхнем углу.
-4. Говорите в микрофон — субтитры начнут появляться на экране.
+## Endpoints
 
----
+- HTTP/UI: `GET /`
+- Static: `GET /static/*`
+- WebSocket audio ingress: `GET /ws/audio`
+- gRPC: `RealtimePipeline.Stream` on `GRPC_ADDR`
 
-##  Настройки интерфейса (UI)
-Справа вверху есть иконка шестерёнки. Внутри вы найдете полезные настройки:
-* **Индивидуальный размер шрифта** для каждого из трех языков.
-* **Максимальное количество субтитров** на экране.
-* **Интервал захвата (Chunk Interval)**: Рекомендуется от 3 до 5 секунд. Чем больше интервал, тем точнее распознавание, но больше задержка перед появлением текста.
-* **Overlay Mode (Режим наложения)**: Убирает шапку и подвал сайта, делая фон прозрачным — идеально для захвата окна в OBS Studio (Chroma Key/Color Key) или вывода на чистый экран проектора.
+## Notes
 
-##  Структура проекта
-* `main.py` — Главный сервер (FastAPI, WebSockets, логика Vosk/OpenRouter).
-* `download_model.py` — Скрипт для скачивания локальной казахской модели.
-* `static/index.html` — Визуальная часть (Tailwind CSS).
-* `static/app.js` — Логика захвата голоса из браузера и передача аудио по WebSockets.
-* `.env` — Файл для секретных ключей (не передавайте его никому!).
-* `requirements.txt` — Список библиотек.
+- Frontend protocol (`settings_state`, `recognized`, `translated`) is preserved.
+- Only source languages are accepted: Kazakh, Russian, English.
+- Unsupported scripts/languages are filtered before translation step.
+- Glossary terms are used as STT/translation prompt hints.

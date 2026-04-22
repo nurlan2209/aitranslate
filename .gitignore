@@ -44,6 +44,9 @@ Thumbs.db
 # Rust
 target/
 
+# Runtime data
+data/
+
 
 # Added by cargo
 

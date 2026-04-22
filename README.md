@@ -44,12 +44,18 @@ cargo run
 ```text
 http://127.0.0.1:8000
 ```
+History UI:
+```text
+http://127.0.0.1:8000/history
+```
 
 ## Endpoints
 
 - HTTP/UI: `GET /`
+- History UI: `GET /history`
 - Static: `GET /static/*`
 - WebSocket audio ingress: `GET /ws/audio`
+- History API: `GET /api/history`, `GET /api/history/sessions`, `POST /api/history/clear`
 - gRPC: `RealtimePipeline.Stream` on `GRPC_ADDR`
 
 ## Notes
@@ -58,3 +64,5 @@ http://127.0.0.1:8000
 - Only source languages are accepted: Kazakh, Russian, English.
 - Unsupported scripts/languages are filtered before translation step.
 - Glossary terms are used as STT/translation prompt hints.
+- Conversation history is stored locally in `data/history.jsonl` (configurable via `HISTORY_FILE`).
+- History is grouped by recording sessions (`Start` -> `Stop`) with session names shown as date/time in UI.

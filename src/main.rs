@@ -1,21 +1,24 @@
 use axum::Router;
-use axum::extract::State;
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
+use axum::extract::{Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
+use axum::{Json, http::StatusCode};
 use futures_util::{SinkExt, StreamExt};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::multipart::{Form, Part};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::io::AsyncWriteExt;
+use tokio::sync::{RwLock, mpsc};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Server;
@@ -96,6 +99,7 @@ static SPOKEN_MNU_RE_1: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\b[эе]м\s+эн\s+ю\b").expect("valid spoken mnu regex"));
 static SPOKEN_MNU_RE_2: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?i)\bэмэню\b").expect("valid spoken mnu compact regex"));
+static SESSION_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 struct AppConfig {
@@ -112,6 +116,8 @@ struct AppConfig {
     grpc_addr: SocketAddr,
     http_addr: SocketAddr,
     grpc_endpoint: String,
+    history_file: String,
+    history_max_entries: usize,
 }
 
 impl AppConfig {
@@ -135,6 +141,9 @@ impl AppConfig {
         let http_addr = parse_env_addr("HTTP_ADDR", "127.0.0.1:8000")?;
         let grpc_endpoint =
             std::env::var("GRPC_ENDPOINT").unwrap_or_else(|_| format!("http://{}", grpc_addr));
+        let history_file =
+            std::env::var("HISTORY_FILE").unwrap_or_else(|_| "data/history.jsonl".to_string());
+        let history_max_entries = parse_env_usize("HISTORY_MAX_ENTRIES", 5000)?;
 
         Ok(Self {
             openai_api_key,
@@ -150,6 +159,8 @@ impl AppConfig {
             grpc_addr,
             http_addr,
             grpc_endpoint,
+            history_file,
+            history_max_entries,
         })
     }
 }
@@ -158,9 +169,12 @@ impl AppConfig {
 struct PipelineService {
     cfg: Arc<AppConfig>,
     http: reqwest::Client,
+    history: Arc<HistoryStore>,
 }
 
 struct SessionState {
+    session_id: String,
+    session_started_ms: i64,
     language_mode: LanguageMode,
     manual_source_lang: SourceLanguage,
     custom_glossary_terms: Vec<String>,
@@ -172,7 +186,12 @@ struct SessionState {
 
 impl SessionState {
     fn new() -> Self {
+        let session_started_ms = now_unix_ms();
+        let seq = SESSION_SEQ.fetch_add(1, Ordering::SeqCst);
+        let session_id = format!("session-{session_started_ms}-{seq}");
         Self {
+            session_id,
+            session_started_ms,
             language_mode: LanguageMode::Auto,
             manual_source_lang: SourceLanguage::Kazakh,
             custom_glossary_terms: Vec::new(),
@@ -187,6 +206,60 @@ impl SessionState {
 #[derive(Clone)]
 struct HttpState {
     grpc_endpoint: String,
+    history: Arc<HistoryStore>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct HistoryEntry {
+    id: u64,
+    ts_ms: i64,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    session_started_ms: i64,
+    source_lang: String,
+    original: String,
+    ru: String,
+    en: String,
+    kk: String,
+}
+
+#[derive(Debug)]
+struct HistoryStore {
+    file_path: PathBuf,
+    max_entries: usize,
+    next_id: AtomicU64,
+    entries: RwLock<VecDeque<HistoryEntry>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HistoryQuery {
+    limit: Option<usize>,
+    session_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct HistoryListResponse {
+    items: Vec<HistoryEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HistorySessionsQuery {
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HistorySessionSummary {
+    session_id: String,
+    session_started_ms: i64,
+    first_ts_ms: i64,
+    last_ts_ms: i64,
+    messages: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct HistorySessionsResponse {
+    sessions: Vec<HistorySessionSummary>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -208,6 +281,182 @@ struct TranslationTriple {
     kk: String,
 }
 
+impl HistoryStore {
+    async fn load(file_path: PathBuf, max_entries: usize) -> Self {
+        let mut entries = VecDeque::new();
+        let mut next_id = 1u64;
+
+        if let Ok(raw) = tokio::fs::read_to_string(&file_path).await {
+            for line in raw.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(mut entry) = serde_json::from_str::<HistoryEntry>(line) {
+                    if entry.session_id.trim().is_empty() {
+                        entry.session_id = format!("legacy-{}", entry.id);
+                    }
+                    if entry.session_started_ms <= 0 {
+                        entry.session_started_ms = entry.ts_ms;
+                    }
+                    next_id = next_id.max(entry.id + 1);
+                    entries.push_back(entry);
+                    while entries.len() > max_entries {
+                        entries.pop_front();
+                    }
+                }
+            }
+        }
+
+        Self {
+            file_path,
+            max_entries,
+            next_id: AtomicU64::new(next_id),
+            entries: RwLock::new(entries),
+        }
+    }
+
+    async fn append(
+        &self,
+        source_lang: SourceLanguage,
+        original: String,
+        translation: &TranslationTriple,
+        session_id: &str,
+        session_started_ms: i64,
+    ) -> Result<(), String> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let ts_ms = now_unix_ms();
+        let entry = HistoryEntry {
+            id,
+            ts_ms,
+            session_id: session_id.to_string(),
+            session_started_ms,
+            source_lang: source_to_ui(source_lang).to_string(),
+            original,
+            ru: translation.ru.clone(),
+            en: translation.en.clone(),
+            kk: translation.kk.clone(),
+        };
+
+        {
+            let mut lock = self.entries.write().await;
+            lock.push_back(entry.clone());
+            while lock.len() > self.max_entries {
+                lock.pop_front();
+            }
+        }
+
+        if let Some(parent) = self.file_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.file_path)
+            .await
+            .map_err(|e| e.to_string())?;
+        let line = format!(
+            "{}\n",
+            serde_json::to_string(&entry).map_err(|e| e.to_string())?
+        );
+        file.write_all(line.as_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn list(&self, limit: usize, session_id: Option<&str>) -> Vec<HistoryEntry> {
+        let lock = self.entries.read().await;
+        let mut items: Vec<HistoryEntry> = lock
+            .iter()
+            .filter(|item| {
+                if let Some(want) = session_id {
+                    item.session_id == want
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+        if items.len() > limit {
+            let drain = items.len() - limit;
+            items.drain(0..drain);
+        }
+        items
+    }
+
+    async fn sessions(&self, limit: usize) -> Vec<HistorySessionSummary> {
+        let lock = self.entries.read().await;
+        let mut grouped: HashMap<String, HistorySessionSummary> = HashMap::new();
+
+        for item in lock.iter() {
+            let sid = if item.session_id.trim().is_empty() {
+                format!("legacy-{}", item.id)
+            } else {
+                item.session_id.clone()
+            };
+            let started_ms = if item.session_started_ms > 0 {
+                item.session_started_ms
+            } else {
+                item.ts_ms
+            };
+
+            if let Some(existing) = grouped.get_mut(&sid) {
+                existing.messages += 1;
+                if item.ts_ms < existing.first_ts_ms {
+                    existing.first_ts_ms = item.ts_ms;
+                }
+                if item.ts_ms > existing.last_ts_ms {
+                    existing.last_ts_ms = item.ts_ms;
+                }
+                if started_ms < existing.session_started_ms {
+                    existing.session_started_ms = started_ms;
+                }
+            } else {
+                grouped.insert(
+                    sid.clone(),
+                    HistorySessionSummary {
+                        session_id: sid,
+                        session_started_ms: started_ms,
+                        first_ts_ms: item.ts_ms,
+                        last_ts_ms: item.ts_ms,
+                        messages: 1,
+                    },
+                );
+            }
+        }
+
+        let mut sessions: Vec<HistorySessionSummary> = grouped.into_values().collect();
+        sessions.sort_by(|a, b| {
+            b.session_started_ms
+                .cmp(&a.session_started_ms)
+                .then_with(|| b.last_ts_ms.cmp(&a.last_ts_ms))
+        });
+        if sessions.len() > limit {
+            sessions.truncate(limit);
+        }
+        sessions
+    }
+
+    async fn clear(&self) -> Result<(), String> {
+        {
+            let mut lock = self.entries.write().await;
+            lock.clear();
+        }
+        self.next_id.store(1, Ordering::SeqCst);
+        if let Some(parent) = self.file_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        tokio::fs::write(&self.file_path, b"")
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
@@ -225,9 +474,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .timeout(Duration::from_secs(60))
         .build()?;
 
+    let history_store = Arc::new(
+        HistoryStore::load(
+            PathBuf::from(cfg.history_file.clone()),
+            cfg.history_max_entries,
+        )
+        .await,
+    );
+
     let grpc_service = PipelineService {
         cfg: cfg.clone(),
         http: http.clone(),
+        history: history_store.clone(),
     };
 
     let grpc_addr = cfg.grpc_addr;
@@ -244,9 +502,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = Arc::new(HttpState {
         grpc_endpoint: cfg.grpc_endpoint.clone(),
+        history: history_store.clone(),
     });
     let app = Router::new()
         .route("/", get(index_handler))
+        .route("/history", get(history_handler))
+        .route("/api/history", get(api_history_handler))
+        .route("/api/history/sessions", get(api_history_sessions_handler))
+        .route("/api/history/clear", post(api_history_clear_handler))
         .route("/ws/audio", get(ws_audio_handler))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(app_state);
@@ -286,6 +549,46 @@ async fn index_handler() -> impl IntoResponse {
         )
             .into_response(),
         Err(_) => (axum::http::StatusCode::NOT_FOUND, "index.html not found").into_response(),
+    }
+}
+
+async fn history_handler() -> impl IntoResponse {
+    match tokio::fs::read("static/history.html").await {
+        Ok(bytes) => (
+            [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (axum::http::StatusCode::NOT_FOUND, "history.html not found").into_response(),
+    }
+}
+
+async fn api_history_handler(
+    State(state): State<Arc<HttpState>>,
+    Query(query): Query<HistoryQuery>,
+) -> impl IntoResponse {
+    let limit = query.limit.unwrap_or(300).clamp(1, 2000);
+    let items = state.history.list(limit, query.session_id.as_deref()).await;
+    Json(HistoryListResponse { items })
+}
+
+async fn api_history_sessions_handler(
+    State(state): State<Arc<HttpState>>,
+    Query(query): Query<HistorySessionsQuery>,
+) -> impl IntoResponse {
+    let limit = query.limit.unwrap_or(200).clamp(1, 2000);
+    let sessions = state.history.sessions(limit).await;
+    Json(HistorySessionsResponse { sessions })
+}
+
+async fn api_history_clear_handler(State(state): State<Arc<HttpState>>) -> impl IntoResponse {
+    match state.history.clear().await {
+        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": err })),
+        )
+            .into_response(),
     }
 }
 
@@ -508,6 +811,10 @@ impl PipelineService {
         tx: mpsc::Sender<Result<ServerMessage, Status>>,
     ) -> Result<(), String> {
         let mut session = SessionState::new();
+        info!(
+            "Started stream session id={} started_ms={}",
+            session.session_id, session.session_started_ms
+        );
         let warning = if self.cfg.kazakh_stt_engine.eq_ignore_ascii_case("vosk") {
             Some("Vosk mode is not implemented in Rust build; using remote STT.".to_string())
         } else {
@@ -553,6 +860,7 @@ impl PipelineService {
         if let Some(task) = session.translation_task.take() {
             task.abort();
         }
+        info!("Closed stream session id={}", session.session_id);
         Ok(())
     }
 
@@ -709,6 +1017,8 @@ impl PipelineService {
         let tx_clone = tx.clone();
         let source_text = incremental.clone();
         let source_lang = detected_lang;
+        let session_id = session.session_id.clone();
+        let session_started_ms = session.session_started_ms;
         let glossary_snapshot = active_glossary.clone();
         session.translation_task = Some(tokio::spawn(async move {
             let started = Instant::now();
@@ -726,6 +1036,19 @@ impl PipelineService {
                 "[pipeline] total_ms={:.0} stt_ms={:.0} translate_ms={:.0} rms={:.0}",
                 total_ms, stt_ms, translate_ms, rms
             );
+            if let Err(err) = svc
+                .history
+                .append(
+                    source_lang,
+                    source_text.clone(),
+                    &translations,
+                    &session_id,
+                    session_started_ms,
+                )
+                .await
+            {
+                warn!("Failed to append history entry: {err}");
+            }
             let msg = ServerMessage {
                 payload: Some(ServerPayload::Translated(TranslatedEvent {
                     original: source_text,
@@ -917,6 +1240,13 @@ fn parse_env_addr(key: &str, default: &str) -> Result<SocketAddr, String> {
     let raw = std::env::var(key).unwrap_or_else(|_| default.to_string());
     raw.parse::<SocketAddr>()
         .map_err(|_| format!("{key} must be a socket address, got: {raw}"))
+}
+
+fn now_unix_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn compute_rms(pcm_s16le: &[u8]) -> f64 {

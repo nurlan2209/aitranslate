@@ -103,7 +103,8 @@ static SESSION_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 struct AppConfig {
-    openai_api_key: String,
+    llm_api_key: String,
+    llm_base_url: String,
     translation_model: String,
     remote_stt_model: String,
     kazakh_stt_engine: String,
@@ -123,8 +124,12 @@ struct AppConfig {
 impl AppConfig {
     fn from_env() -> Result<Self, String> {
         dotenvy::dotenv().ok();
-        let openai_api_key = std::env::var("OPENAI_API_KEY")
-            .map_err(|_| "OPENAI_API_KEY is required in .env".to_string())?;
+        let llm_api_key = std::env::var("OPENROUTER_API_KEY")
+            .or_else(|_| std::env::var("OPENAI_API_KEY"))
+            .map_err(|_| "OPENROUTER_API_KEY (or OPENAI_API_KEY) is required in .env".to_string())?;
+        let llm_base_url = std::env::var("OPENROUTER_BASE_URL")
+            .or_else(|_| std::env::var("OPENAI_BASE_URL"))
+            .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
         let translation_model =
             std::env::var("TRANSLATION_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
         let remote_stt_model =
@@ -146,7 +151,8 @@ impl AppConfig {
         let history_max_entries = parse_env_usize("HISTORY_MAX_ENTRIES", 5000)?;
 
         Ok(Self {
-            openai_api_key,
+            llm_api_key,
+            llm_base_url,
             translation_model,
             remote_stt_model,
             kazakh_stt_engine,
@@ -1088,8 +1094,8 @@ impl PipelineService {
 
         let response = self
             .http
-            .post("https://api.openai.com/v1/audio/transcriptions")
-            .bearer_auth(&self.cfg.openai_api_key)
+            .post(format!("{}/audio/transcriptions", self.cfg.llm_base_url.trim_end_matches('/')))
+            .bearer_auth(&self.cfg.llm_api_key)
             .multipart(form)
             .send()
             .await
@@ -1098,7 +1104,7 @@ impl PipelineService {
         let status = response.status();
         let body = response.text().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
-            return Err(format!("OpenAI STT error {}: {}", status, body));
+            return Err(format!("LLM STT error {}: {}", status, body));
         }
         let parsed: OpenAiTranscriptionResponse =
             serde_json::from_str(&body).map_err(|e| e.to_string())?;
@@ -1146,8 +1152,8 @@ impl PipelineService {
 
         let response = self
             .http
-            .post("https://api.openai.com/v1/chat/completions")
-            .bearer_auth(&self.cfg.openai_api_key)
+            .post(format!("{}/chat/completions", self.cfg.llm_base_url.trim_end_matches('/')))
+            .bearer_auth(&self.cfg.llm_api_key)
             .json(&body)
             .send()
             .await;

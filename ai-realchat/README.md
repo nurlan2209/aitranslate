@@ -29,9 +29,9 @@ Extra conversation logic:
 1. User taps `Start speaking`
 2. Browser records audio with `MediaRecorder`
 3. Audio is sent to FastAPI `/api/voice`
-4. Backend transcribes audio (`gpt-4o-mini-transcribe`)
-5. Backend asks LLM (`gpt-4o-mini`)
-6. Backend generates speech (`gpt-4o-mini-tts`)
+4. Backend transcribes audio (`openai/gpt-4o-mini-transcribe`)
+5. Backend asks LLM (`openai/gpt-4o-mini`)
+6. Backend generates speech (`openai/gpt-4o-mini-tts`)
 7. Frontend receives text + audio, shows chat, plays audio
 
 ## Backend setup
@@ -47,12 +47,13 @@ cp .env.example .env
 Fill `.env`:
 
 ```dotenv
-OPENAI_API_KEY=sk-...
-OPENAI_STT_MODEL=gpt-4o-mini-transcribe
-OPENAI_CHAT_MODEL=gpt-4o-mini
-OPENAI_TTS_MODEL=gpt-4o-mini-tts
-OPENAI_TTS_VOICE=alloy
-OPENAI_TTS_FORMAT=mp3
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_STT_MODEL=openai/gpt-4o-mini-transcribe
+OPENROUTER_CHAT_MODEL=openai/gpt-4o-mini
+OPENROUTER_TTS_MODEL=openai/gpt-4o-mini-tts
+OPENROUTER_TTS_VOICE=alloy
+OPENROUTER_TTS_FORMAT=mp3
 FRONTEND_ORIGIN=http://localhost:3040
 ```
 

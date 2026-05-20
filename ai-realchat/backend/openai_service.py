@@ -22,16 +22,17 @@ SYSTEM_PROMPT = """Ты мультиязычный AI-ассистент для 
 
 class OpenAIService:
     def __init__(self) -> None:
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set")
+            raise RuntimeError("OPENROUTER_API_KEY (or OPENAI_API_KEY) is not set")
 
-        self.client = OpenAI(api_key=api_key)
-        self.stt_model = os.getenv("OPENAI_STT_MODEL", "gpt-4o-mini-transcribe")
-        self.chat_model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
-        self.tts_model = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts")
-        self.tts_voice = os.getenv("OPENAI_TTS_VOICE", "alloy")
-        self.tts_format = os.getenv("OPENAI_TTS_FORMAT", "mp3")
+        base_url = os.getenv("OPENROUTER_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "https://openrouter.ai/api/v1"
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.stt_model = os.getenv("OPENROUTER_STT_MODEL") or os.getenv("OPENAI_STT_MODEL", "openai/gpt-4o-mini-transcribe")
+        self.chat_model = os.getenv("OPENROUTER_CHAT_MODEL") or os.getenv("OPENAI_CHAT_MODEL", "openai/gpt-4o-mini")
+        self.tts_model = os.getenv("OPENROUTER_TTS_MODEL") or os.getenv("OPENAI_TTS_MODEL", "openai/gpt-4o-mini-tts")
+        self.tts_voice = os.getenv("OPENROUTER_TTS_VOICE") or os.getenv("OPENAI_TTS_VOICE", "alloy")
+        self.tts_format = os.getenv("OPENROUTER_TTS_FORMAT") or os.getenv("OPENAI_TTS_FORMAT", "mp3")
 
     def transcribe_audio(self, audio_bytes: bytes, filename: str) -> str:
         audio_file = io.BytesIO(audio_bytes)

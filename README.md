@@ -6,9 +6,9 @@ Current backend stack:
 - Rust (`tokio`, `tonic`, `axum`)
 - gRPC bidirectional stream (`RealtimePipeline.Stream`)
 - WebSocket gateway `/ws/audio` for existing browser client
-- OpenAI API:
-  - STT: `/v1/audio/transcriptions` (`REMOTE_STT_MODEL`)
-  - Translation: `/v1/chat/completions` (`TRANSLATION_MODEL`)
+- OpenRouter API (OpenAI-compatible):
+  - STT: `/audio/transcriptions` (`REMOTE_STT_MODEL`)
+  - Translation: `/chat/completions` (`TRANSLATION_MODEL`)
 
 ## Run
 
@@ -19,9 +19,10 @@ brew install rust protobuf
 
 2. Create `.env` in project root:
 ```dotenv
-OPENAI_API_KEY=sk-...
-TRANSLATION_MODEL=gpt-4o-mini
-REMOTE_STT_MODEL=gpt-4o-transcribe
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+TRANSLATION_MODEL=openai/gpt-4o-mini
+REMOTE_STT_MODEL=openai/gpt-4o-transcribe
 KAZAKH_STT_ENGINE=remote
 
 SILENCE_RMS_THRESHOLD=800

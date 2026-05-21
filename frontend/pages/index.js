@@ -1,108 +1,57 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8090";
 
 const UI_COPY = {
   ru: {
-    title: "AI RealChat",
-    subtitle: "Режимы как в ChatGPT: обычный чат и realtime-голос.",
-    modeLabel: "Режим",
-    modeChat: "Чат",
-    modeVoice: "Realtime голос",
-    start: "Начать говорить",
-    stop: "Остановить",
-    clear: "Очистить диалог",
+    nav: ["Чат", "Перевод", "История", "Параметры", "Выход"],
+    chatTitle: "Чат",
+    panelTitle: "Панель управления",
+    langTitle: "Выбор языка",
+    micTitle: "Аудиозапись",
+    connTitle: "Статус подключения",
+    connected: "Подключено",
+    wsOk: "WebSocket: OK",
+    input: "Введите сообщение...",
     send: "Отправить",
-    textPlaceholder: "Напишите сообщение...",
-    languageLabel: "Язык интерфейса",
     you: "Вы",
-    assistant: "Ассистент",
-    empty: "Диалог пока пуст. Напишите сообщение или начните запись.",
-    status: {
-      idle: "Готов",
-      listening: "Слушаю...",
-      processing: "Обрабатываю...",
-      speaking: "Озвучиваю ответ...",
-      interrupted: "Озвучка прервана, слушаю вас",
-      ready: "Ответ готов",
-      mic_error: "Не удалось получить доступ к микрофону",
-      request_error: "Ошибка запроса к серверу",
-      play_error: "Не удалось автоматически воспроизвести аудио",
-    },
+    ai: "AI",
+    statusNotRecording: "Не записывается",
   },
   kk: {
-    title: "AI RealChat",
-    subtitle: "ChatGPT сияқты режимдер: кәдімгі чат және realtime дауыс.",
-    modeLabel: "Режим",
-    modeChat: "Чат",
-    modeVoice: "Realtime дауыс",
-    start: "Сөйлесуді бастау",
-    stop: "Тоқтату",
-    clear: "Диалогты тазалау",
+    nav: ["Чат", "Аудару", "Тарих", "Параметрлер", "Шығу"],
+    chatTitle: "Чат",
+    panelTitle: "Басқару панелі",
+    langTitle: "Тіл таңдау",
+    micTitle: "Аудио жазу",
+    connTitle: "Қосылу күйі",
+    connected: "Қосылған",
+    wsOk: "WebSocket: OK",
+    input: "Хабарлама жазыңыз...",
     send: "Жіберу",
-    textPlaceholder: "Хабарлама жазыңыз...",
-    languageLabel: "Интерфейс тілі",
     you: "Сіз",
-    assistant: "Ассистент",
-    empty: "Диалог әлі бос. Хабарлама жазыңыз немесе жазуды бастаңыз.",
-    status: {
-      idle: "Дайын",
-      listening: "Тыңдап тұрмын...",
-      processing: "Өңдеп жатырмын...",
-      speaking: "Жауапты дыбыстап жатырмын...",
-      interrupted: "Дыбыс тоқтатылды, сізді тыңдап тұрмын",
-      ready: "Жауап дайын",
-      mic_error: "Микрофонға қол жеткізу мүмкін болмады",
-      request_error: "Серверге сұрау қатесі",
-      play_error: "Аудионы автоматты ойнату мүмкін болмады",
-    },
+    ai: "AI",
+    statusNotRecording: "Жазылуда емес",
   },
   en: {
-    title: "AI RealChat",
-    subtitle: "ChatGPT-like modes: standard chat and realtime voice.",
-    modeLabel: "Mode",
-    modeChat: "Chat",
-    modeVoice: "Realtime voice",
-    start: "Start speaking",
-    stop: "Stop",
-    clear: "Clear chat",
+    nav: ["Chat", "Translate", "History", "Settings", "Logout"],
+    chatTitle: "Chat",
+    panelTitle: "Control panel",
+    langTitle: "Language",
+    micTitle: "Audio recording",
+    connTitle: "Connection",
+    connected: "Connected",
+    wsOk: "WebSocket: OK",
+    input: "Type a message...",
     send: "Send",
-    textPlaceholder: "Type your message...",
-    languageLabel: "UI language",
     you: "You",
-    assistant: "Assistant",
-    empty: "No messages yet. Type a message or start recording.",
-    status: {
-      idle: "Ready",
-      listening: "Listening...",
-      processing: "Processing...",
-      speaking: "Speaking response...",
-      interrupted: "Playback interrupted, listening to you",
-      ready: "Response is ready",
-      mic_error: "Could not access microphone",
-      request_error: "Request to server failed",
-      play_error: "Audio autoplay was blocked",
-    },
+    ai: "AI",
+    statusNotRecording: "Not recording",
   },
 };
 
-const LANG_OPTIONS = [
-  { code: "ru", label: "RU" },
-  { code: "kk", label: "KZ" },
-  { code: "en", label: "EN" },
-];
-
-const MODE_OPTIONS = [
-  { code: "chat" },
-  { code: "voice" },
-];
-
 function createDefaultTurnMeta() {
-  return {
-    barge_in: false,
-    interrupted_assistant_text: "",
-    interrupted_at_ms: null,
-  };
+  return { barge_in: false, interrupted_assistant_text: "", interrupted_at_ms: null };
 }
 
 function chooseRecorderMimeType() {
@@ -111,16 +60,16 @@ function chooseRecorderMimeType() {
   return preferred.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
+function formatClock(date) {
+  return new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit" }).format(date);
+}
+
 export default function HomePage() {
-  const [uiLang, setUiLang] = useState("ru");
-  const [interactionMode, setInteractionMode] = useState("chat");
+  const [uiLang, setUiLang] = useState("kk");
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [assistantSpeaking, setAssistantSpeaking] = useState(false);
-  const [statusKey, setStatusKey] = useState("idle");
-  const [statusDetail, setStatusDetail] = useState("");
 
   const recorderRef = useRef(null);
   const playbackRef = useRef(null);
@@ -134,37 +83,26 @@ export default function HomePage() {
 
   const t = UI_COPY[uiLang];
 
-  const statusText = useMemo(() => {
-    const base = t.status[statusKey] || t.status.idle;
-    return statusDetail ? `${base}: ${statusDetail}` : base;
-  }, [t, statusKey, statusDetail]);
+  const elapsed = useMemo(() => {
+    if (!isRecording) return "00:00:00";
+    return "00:00:01";
+  }, [isRecording]);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
   useEffect(() => {
-    const chat = chatRef.current;
-    if (!chat) return;
-    chat.scrollTop = chat.scrollHeight;
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
   }, [messages]);
 
   useEffect(() => {
     return () => {
       try {
         recorderRef.current?.stop();
-      } catch {
-        // Ignore recorder shutdown errors on unmount.
-      }
-
-      const activeAudio = playbackRef.current;
-      if (activeAudio) {
-        activeAudio.pause();
-      }
-
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      } catch {}
+      playbackRef.current?.pause();
+      if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
     };
   }, []);
 
@@ -182,12 +120,9 @@ export default function HomePage() {
     activeAudio.pause();
     try {
       activeAudio.currentTime = 0;
-    } catch {
-      // Ignore seek errors for short/streamed blobs.
-    }
+    } catch {}
 
     playbackRef.current = null;
-    setAssistantSpeaking(false);
 
     if (markBargeIn) {
       pendingTurnMetaRef.current = {
@@ -195,8 +130,6 @@ export default function HomePage() {
         interrupted_assistant_text: lastAssistantTextRef.current || "",
         interrupted_at_ms: interruptedAtMs,
       };
-      setStatusDetail("");
-      setStatusKey("interrupted");
     }
 
     return true;
@@ -206,36 +139,21 @@ export default function HomePage() {
     if (!audioBase64) return;
 
     stopAssistantPlayback({ markBargeIn: false });
-
     const audio = new Audio(`data:${audioMimeType || "audio/mpeg"};base64,${audioBase64}`);
     playbackRef.current = audio;
-    setAssistantSpeaking(true);
 
     audio.onended = () => {
-      if (playbackRef.current === audio) {
-        playbackRef.current = null;
-      }
-      setAssistantSpeaking(false);
-      setStatusKey("ready");
+      if (playbackRef.current === audio) playbackRef.current = null;
     };
 
     audio.onerror = () => {
-      if (playbackRef.current === audio) {
-        playbackRef.current = null;
-      }
-      setAssistantSpeaking(false);
+      if (playbackRef.current === audio) playbackRef.current = null;
     };
 
     try {
       await audio.play();
-      setStatusKey("speaking");
-    } catch (playError) {
-      if (playbackRef.current === audio) {
-        playbackRef.current = null;
-      }
-      setAssistantSpeaking(false);
-      setStatusKey("play_error");
-      setStatusDetail(playError instanceof Error ? playError.message : "");
+    } catch {
+      if (playbackRef.current === audio) playbackRef.current = null;
     }
   };
 
@@ -244,8 +162,6 @@ export default function HomePage() {
     if (!text || isProcessing || isRecording) return;
 
     setIsProcessing(true);
-    setStatusDetail("");
-    setStatusKey("processing");
 
     try {
       const interruptedAssistant = stopAssistantPlayback({ markBargeIn: true });
@@ -254,15 +170,10 @@ export default function HomePage() {
 
       const response = await fetch(`${BACKEND_URL}/api/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          history: messagesRef.current.slice(-8).map((item) => ({
-            role: item.role,
-            content: item.content,
-          })),
+          history: messagesRef.current.slice(-8).map((item) => ({ role: item.role, content: item.content })),
           turn_meta: interruptedAssistant ? turnMeta : createDefaultTurnMeta(),
           speak: false,
         }),
@@ -275,24 +186,22 @@ export default function HomePage() {
 
       const data = await response.json();
       const assistantText = data.response_text || "";
+      const time = formatClock(new Date());
 
       setMessages((prev) => [
         ...prev,
-        { role: "user", content: text },
-        { role: "assistant", content: assistantText },
+        { role: "user", content: text, time },
+        { role: "assistant", content: assistantText, time: formatClock(new Date()) },
       ]);
+
       lastAssistantTextRef.current = assistantText;
       setInputText("");
-      setStatusDetail("");
 
       if (data.audio_base64) {
         await playAssistantAudio(data.audio_base64, data.audio_mime_type);
-      } else {
-        setStatusKey("ready");
       }
-    } catch (error) {
-      setStatusKey("request_error");
-      setStatusDetail(error instanceof Error ? error.message : "");
+    } catch {
+      // keep UI minimal for this layout
     } finally {
       setIsProcessing(false);
     }
@@ -308,20 +217,11 @@ export default function HomePage() {
       formData.append("file", audioBlob, `speech.${extension}`);
       formData.append(
         "history",
-        JSON.stringify(
-          messagesRef.current.slice(-8).map((item) => ({
-            role: item.role,
-            content: item.content,
-          }))
-        )
+        JSON.stringify(messagesRef.current.slice(-8).map((item) => ({ role: item.role, content: item.content })))
       );
       formData.append("turn_meta", JSON.stringify(turnMeta));
 
-      const response = await fetch(`${BACKEND_URL}/api/voice`, {
-        method: "POST",
-        body: formData,
-      });
-
+      const response = await fetch(`${BACKEND_URL}/api/voice`, { method: "POST", body: formData });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         throw new Error(err.detail || `HTTP ${response.status}`);
@@ -330,22 +230,18 @@ export default function HomePage() {
       const data = await response.json();
       const userText = data.transcript || "";
       const assistantText = data.response_text || "";
+      const time = formatClock(new Date());
 
       setMessages((prev) => [
         ...prev,
-        { role: "user", content: userText },
-        { role: "assistant", content: assistantText },
+        { role: "user", content: userText, time },
+        { role: "assistant", content: assistantText, time: formatClock(new Date()) },
       ]);
       lastAssistantTextRef.current = assistantText;
-      setStatusDetail("");
 
       await playAssistantAudio(data.audio_base64, data.audio_mime_type);
-      if (!data.audio_base64) {
-        setStatusKey("ready");
-      }
-    } catch (error) {
-      setStatusKey("request_error");
-      setStatusDetail(error instanceof Error ? error.message : "");
+    } catch {
+      // keep UI minimal for this layout
     } finally {
       setIsProcessing(false);
       stopStream();
@@ -355,23 +251,17 @@ export default function HomePage() {
   const startRecording = async () => {
     if (isRecording || isProcessing) return;
 
-    let interruptedAssistant = false;
     try {
-      interruptedAssistant = stopAssistantPlayback({ markBargeIn: true });
-
+      stopAssistantPlayback({ markBargeIn: true });
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       chunksRef.current = [];
 
       const mimeType = chooseRecorderMimeType();
-      const mediaRecorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
+        if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = async () => {
@@ -382,162 +272,105 @@ export default function HomePage() {
 
       recorderRef.current = mediaRecorder;
       mediaRecorder.start();
-
       setIsRecording(true);
-      setStatusDetail("");
-      setStatusKey("listening");
-    } catch (error) {
-      if (interruptedAssistant) {
-        pendingTurnMetaRef.current = createDefaultTurnMeta();
-      }
-      setStatusKey("mic_error");
-      setStatusDetail(error instanceof Error ? error.message : "");
+    } catch {
+      // ignore
     }
   };
 
   const stopRecording = () => {
     if (!isRecording) return;
-
     setIsRecording(false);
     setIsProcessing(true);
-    setStatusDetail("");
-    setStatusKey("processing");
-
     recorderRef.current?.stop();
     recorderRef.current = null;
   };
 
-  const switchInteractionMode = (mode) => {
-    if (mode === interactionMode) return;
-    if (isRecording || isProcessing) return;
-
-    stopAssistantPlayback({ markBargeIn: false });
-    setInteractionMode(mode);
-    setStatusKey("idle");
-    setStatusDetail("");
-  };
-
-  const clearChat = () => {
-    if (isRecording || isProcessing) return;
-    stopAssistantPlayback({ markBargeIn: false });
-    pendingTurnMetaRef.current = createDefaultTurnMeta();
-    lastAssistantTextRef.current = "";
-    setMessages([]);
-    setInputText("");
-    setStatusKey("idle");
-    setStatusDetail("");
-  };
-
-  const isBusy = isProcessing || isRecording;
-
   return (
-    <main className="page">
-      <div className="noise" />
-      <section className="card">
-        <header className="cardHead">
-          <div>
-            <h1>{t.title}</h1>
-            <p>{t.subtitle}</p>
-          </div>
+    <main className="appShell">
+      <aside className="leftNav">
+        <div className="logoMark">◼</div>
+        {t.nav.map((item, idx) => (
+          <button key={item} className={`navItem ${idx === 0 ? "active" : ""}`} type="button">
+            {item}
+          </button>
+        ))}
+      </aside>
 
-          <div className="languageBox" aria-label={t.languageLabel}>
-            <span>{t.languageLabel}</span>
-            <div className="chips">
-              {LANG_OPTIONS.map((lang) => (
-                <button
-                  type="button"
-                  key={lang.code}
-                  className={`chip ${uiLang === lang.code ? "active" : ""}`}
-                  onClick={() => setUiLang(lang.code)}
-                >
-                  {lang.label}
-                </button>
+      <section className="centerArea">
+        <div className="board">
+          <div className="chatCol">
+            <h2>{t.chatTitle}</h2>
+            <div className="messages" ref={chatRef}>
+              {messages.map((message, index) => (
+                <article key={`${message.role}-${index}`} className={`msgCard ${message.role}`}>
+                  <div className="msgHead">
+                    <span className="avatar">{message.role === "assistant" ? "AI" : "A"}</span>
+                    <strong>{message.role === "assistant" ? t.ai : t.you}</strong>
+                    <span className="time">{message.time}</span>
+                  </div>
+                  <p>{message.content}</p>
+                </article>
               ))}
             </div>
           </div>
-        </header>
 
-        <section className="modeSwitch" aria-label={t.modeLabel}>
-          {MODE_OPTIONS.map((mode) => {
-            const isActive = interactionMode === mode.code;
-            const label = mode.code === "chat" ? t.modeChat : t.modeVoice;
-            return (
+          <aside className="rightPanel">
+            <h3>{t.panelTitle}</h3>
+
+            <div className="panelCard">
+              <h4>{t.langTitle}</h4>
+              <select value={uiLang} onChange={(e) => setUiLang(e.target.value)}>
+                <option value="kk">Қазақша → English</option>
+                <option value="ru">Русский → English</option>
+                <option value="en">English → Қазақша</option>
+              </select>
+            </div>
+
+            <div className="panelCard">
+              <h4>{t.micTitle}</h4>
               <button
-                key={mode.code}
                 type="button"
-                className={`modeBtn ${isActive ? "active" : ""}`}
-                onClick={() => switchInteractionMode(mode.code)}
-                disabled={isBusy}
+                className={`micBtn ${isRecording ? "recording" : ""}`}
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={isProcessing}
               >
-                {label}
+                🎤
               </button>
-            );
-          })}
-        </section>
+              <div className="timer">{elapsed}</div>
+              <div className="sub">{t.statusNotRecording}</div>
+            </div>
 
-        {interactionMode === "chat" ? (
-          <section className="chatComposerWrap">
-            <form
-              className="chatComposer"
-              onSubmit={(event) => {
-                event.preventDefault();
-                sendTextToBackend();
-              }}
-            >
-              <input
-                className="textInput"
-                type="text"
-                value={inputText}
-                onChange={(event) => setInputText(event.target.value)}
-                placeholder={t.textPlaceholder}
-                disabled={isBusy}
-              />
-              <button type="submit" className="sendBtn" disabled={isBusy || !inputText.trim()}>
-                {t.send}
-              </button>
-            </form>
+            <div className="panelCard">
+              <h4>{t.connTitle}</h4>
+              <p className="okDot">● {t.connected}</p>
+              <p className="wsText">{t.wsOk}</p>
+            </div>
+          </aside>
+        </div>
 
-            <button type="button" className="clearBtn" onClick={clearChat} disabled={isBusy}>
-              {t.clear}
+        <form
+          className="composer"
+          onSubmit={(event) => {
+            event.preventDefault();
+            sendTextToBackend();
+          }}
+        >
+          <input
+            value={inputText}
+            onChange={(event) => setInputText(event.target.value)}
+            placeholder={t.input}
+            disabled={isProcessing || isRecording}
+          />
+          <div className="actions">
+            <button type="button" className="iconBtn" onClick={isRecording ? stopRecording : startRecording}>
+              🎙
             </button>
-          </section>
-        ) : (
-          <section className="controls">
-            <button
-              type="button"
-              className={`recordBtn ${isRecording ? "recording" : ""}`}
-              onClick={isRecording ? stopRecording : startRecording}
-              disabled={isProcessing}
-            >
-              <span className="dot" />
-              {isRecording ? t.stop : t.start}
+            <button type="submit" className="sendBtn" disabled={!inputText.trim() || isProcessing || isRecording}>
+              {t.send}
             </button>
-
-            <button type="button" className="clearBtn" onClick={clearChat} disabled={isBusy}>
-              {t.clear}
-            </button>
-          </section>
-        )}
-
-        {assistantSpeaking && <div className="speakingBadge">{t.status.speaking}</div>}
-
-        <p className={`status status-${statusKey}`}>{statusText}</p>
-
-        <section ref={chatRef} className="chat" aria-live="polite">
-          {messages.length === 0 && <div className="empty">{t.empty}</div>}
-
-          {messages.map((message, index) => (
-            <article
-              key={`${message.role}-${index}`}
-              className={`bubble ${message.role === "assistant" ? "assistant" : "user"}`}
-            >
-              <span className="roleLabel">
-                {message.role === "assistant" ? t.assistant : t.you}
-              </span>
-              <p>{message.content}</p>
-            </article>
-          ))}
-        </section>
+          </div>
+        </form>
       </section>
     </main>
   );

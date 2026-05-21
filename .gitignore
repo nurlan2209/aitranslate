@@ -1,4 +1,4 @@
-# Python cache/build
+﻿# Python cache/build
 __pycache__/
 *.py[cod]
 *.so
@@ -6,22 +6,22 @@ build/
 dist/
 *.egg-info/
 
+# Node
+frontend/node_modules/
+frontend/.next/
+
 # Virtual environments
 .venv/
 venv/
 env/
+backend/.venv/
 
 # Local secrets/config
 .env
 .env.*
 !.env.example
-
-# Models and large local assets
-vosk-model-*/
-models/
-*.bin
-*.ckpt
-*.safetensors
+backend/.env
+frontend/.env.local
 
 # Logs/runtime
 *.log
@@ -40,14 +40,3 @@ htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
-
-# Rust
-target/
-
-# Runtime data
-data/
-
-
-# Added by cargo
-
-/target

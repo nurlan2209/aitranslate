@@ -1,69 +1,49 @@
-# Realtime Subtitles: Rust + gRPC
+﻿# AITranslate (Python + Next.js)
 
-Realtime STT/translation service for conference subtitles.
+Проект переведен на стек:
+- backend: Python (FastAPI)
+- frontend: Next.js
 
-Current backend stack:
-- Rust (`tokio`, `tonic`, `axum`)
-- gRPC bidirectional stream (`RealtimePipeline.Stream`)
-- WebSocket gateway `/ws/audio` for existing browser client
-- OpenRouter API (OpenAI-compatible):
-  - STT: `/audio/transcriptions` (`REMOTE_STT_MODEL`)
-  - Translation: `/chat/completions` (`TRANSLATION_MODEL`)
+## Структура
 
-## Run
+- backend/
+- frontend/
+- scripts/
+- docker-compose.yml
+- README.md
 
-1. Install Rust toolchain and protobuf compiler (`protoc`):
+## Быстрый старт (Docker)
+
+1. Скопируйте переменные окружения:
+   - `backend/.env.example` -> `backend/.env`
+   - `frontend/.env.local.example` -> `frontend/.env.local` (опционально)
+2. Запустите:
+   - `docker compose up --build`
+3. Откройте:
+   - Frontend: `http://localhost:3040`
+   - Backend health: `http://localhost:8090/health`
+
+## Локальный запуск без Docker
+
+### Backend
+
 ```bash
-brew install rust protobuf
+cd backend
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+uvicorn main:app --reload --host 0.0.0.0 --port 8090
 ```
 
-2. Create `.env` in project root:
-```dotenv
-OPENROUTER_API_KEY=sk-or-...
-OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-TRANSLATION_MODEL=openai/gpt-4o-mini
-REMOTE_STT_MODEL=openai/gpt-4o-transcribe
-KAZAKH_STT_ENGINE=remote
+### Frontend
 
-SILENCE_RMS_THRESHOLD=800
-MIN_WORDS_TO_EMIT=1
-REPEAT_EMIT_SECONDS=4
-MIN_TEXT_LENGTH_TO_EMIT=6
-MIN_ALPHA_CHARS_TO_EMIT=4
-MIN_ALPHA_RATIO_TO_EMIT=0.55
-
-GRPC_ADDR=127.0.0.1:50051
-HTTP_ADDR=127.0.0.1:8000
-```
-
-3. Build and run:
 ```bash
-cargo run
+cd frontend
+npm install
+npm run dev
 ```
 
-4. Open:
-```text
-http://127.0.0.1:8000
-```
-History UI:
-```text
-http://127.0.0.1:8000/history
-```
+## Скрипты
 
-## Endpoints
-
-- HTTP/UI: `GET /`
-- History UI: `GET /history`
-- Static: `GET /static/*`
-- WebSocket audio ingress: `GET /ws/audio`
-- History API: `GET /api/history`, `GET /api/history/sessions`, `POST /api/history/clear`
-- gRPC: `RealtimePipeline.Stream` on `GRPC_ADDR`
-
-## Notes
-
-- Frontend protocol (`settings_state`, `recognized`, `translated`) is preserved.
-- Only source languages are accepted: Kazakh, Russian, English.
-- Unsupported scripts/languages are filtered before translation step.
-- Glossary terms are used as STT/translation prompt hints.
-- Conversation history is stored locally in `data/history.jsonl` (configurable via `HISTORY_FILE`).
-- History is grouped by recording sessions (`Start` -> `Stop`) with session names shown as date/time in UI.
+- `scripts/dev-up.sh` - запуск docker compose с билдом
+- `scripts/dev-down.sh` - остановка docker compose
